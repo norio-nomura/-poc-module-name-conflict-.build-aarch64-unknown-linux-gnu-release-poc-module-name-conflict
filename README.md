@@ -66,3 +66,13 @@ Build session will hangs at sleep like following:
 #31 0.090     docker run -it --privileged --pid=host --rm ubuntu bash -c 'nsenter --all --target=$(lsns|awk "/^4026532477/{print \$4}") bash'
 ```
 Copy and paste the command to enter build session.
+```bash
+$ docker run -it --privileged --pid=host --rm ubuntu bash -c 'nsenter --all --target=$(lsns|awk "/^4026532477/{print \$4}") bash'
+################################################################
+#                                                              #
+# Swift Nightly Docker Image                                   #
+# Tag: swift-DEVELOPMENT-SNAPSHOT-2024-06-13-a                 #
+#                                                              #
+################################################################
+root@buildkitsandbox:/# 
+```
