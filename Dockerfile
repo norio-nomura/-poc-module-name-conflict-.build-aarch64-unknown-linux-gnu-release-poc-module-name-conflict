@@ -82,6 +82,14 @@ ARG TARGET_NAME=${TARGET_IMAGE/:/-}
 ####################################################################################################
 ARG NO_SDK
 ARG _NO_SDK=${NO_SDK:+-no-sdk}
+####################################################################################################
+# --build-arg DISABLE_BUILD_DIR_CACHE
+# If set, disable caching on /SwiftLint/.build directory.
+####################################################################################################
+ARG DISABLE_BUILD_DIR_CACHE
+
+ARG _BUILD_DIR=${DISABLE_BUILD_DIR_CACHE:+/SwiftLint/.build-disabled}
+ARG _BUILD_DIR=${DISABLE_BUILD_DIR_CACHE:-/SwiftLint/.build}
 
 ####################################################################################################
 # Stages for Swift SDKs
@@ -163,11 +171,12 @@ COPY Plugins Plugins/
 COPY Sources Sources/
 COPY Package.* ./
 # Resolve dependencies
-ENV BUILD_CACHE=/poc-module-name-conflict/.build DOT_CACHE=/root/.cache
+ARG _BUILD_DIR
+ENV BUILD_DIR=${_BUILD_DIR} DOT_CACHE=/root/.cache
 # Quick fix to resolve link error
 # RUN sed -i 's/^poc-module-name-conflictPluginDependencies = .*$/poc-module-name-conflictPluginDependencies = []/' Package.swift
 RUN --mount=type=cache,target=${DOT_CACHE},sharing=locked,id=${SDK_NAME} \
-    # --mount=type=cache,target=${BUILD_CACHE},sharing=locked,id=${SDK_NAME} \
+    --mount=type=cache,target=${BUILD_DIR},sharing=locked,id=${SDK_NAME} \
     swift package resolve --configuration release
 ENV SWIFT_FLAGS="--configuration release --skip-update --static-swift-stdlib --product poc-module-name-conflict"
 
@@ -181,7 +190,7 @@ ENV SWIFT_FLAGS="${SWIFT_FLAGS} --swift-sdk ${SDK_NAME}"
 # cross building poc-module-name-conflict
 FROM prepare-sdk AS cross-builder
 RUN --mount=type=cache,target=${DOT_CACHE},sharing=locked,id=${SDK_NAME} \
-    # --mount=type=cache,target=${BUILD_CACHE},sharing=locked,id=${SDK_NAME} \
+    --mount=type=cache,target=${BUILD_DIR},sharing=locked,id=${SDK_NAME} \
     --mount=type=bind,target=${BUNDLE_PATH}/aarch64,from=swift-aarch64 \
     --mount=type=bind,target=${BUNDLE_PATH}/x86_64,from=swift-x86_64 \
     swift sdk list|grep "${SDK_NAME}" && \
@@ -193,14 +202,14 @@ FROM swift-${TARGET_TRIPLE_ARCH} AS runtime
 FROM prepare-sdk AS native-builder
 ARG TARGET_TRIPLE_ARCH
 RUN --mount=type=cache,target=${DOT_CACHE},sharing=locked,id=${SDK_NAME} \
-    # --mount=type=cache,target=${BUILD_CACHE},sharing=locked,id=${SDK_NAME} \
+    --mount=type=cache,target=${BUILD_DIR},sharing=locked,id=${SDK_NAME} \
     --mount=type=bind,target=${BUNDLE_PATH}/${TARGET_TRIPLE_ARCH},from=runtime \
     swift sdk list|grep "${SDK_NAME}" && \
     swift build ${SWIFT_FLAGS} -Xswiftc -save-temps || true
 
 FROM ${_CROSS_OR_NATIVE}-builder AS builder
 RUN --mount=type=cache,target=${DOT_CACHE},sharing=locked,id=${SDK_NAME} \
-    # --mount=type=cache,target=${BUILD_CACHE},sharing=locked,id=${SDK_NAME} \
+    --mount=type=cache,target=${BUILD_DIR},sharing=locked,id=${SDK_NAME} \
     install -v `swift build ${SWIFT_FLAGS} --show-bin-path`/poc-module-name-conflict /usr/bin
 
 ####################################################################################################
