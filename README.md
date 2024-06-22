@@ -50,3 +50,19 @@ Dockerfile:202
 --------------------
 ERROR: failed to solve: process "/bin/sh -c install -v `swift build ${SWIFT_FLAGS} --show-bin-path`/poc-module-name-conflict /usr/bin" did not complete successfully: exit code: 1
 ```
+
+## How to enter docker building session:
+Build with SLEEP=1
+```bash
+buildx build --load . --progress plain --build-arg SLEEP=1
+```
+Build session will hangs at sleep like following:
+```log
+#31 0.090 Enter the following command to enter build session:
+#31 0.090 lima user:
+#31 0.090     limactl shell docker bash -c 'sudo nsenter --all --target=$(lsns|awk "/^4026532477/{print \$4}") bash'
+#31 0.090 
+#31 0.090 Docker for Mac user:
+#31 0.090     docker run -it --privileged --pid=host --rm ubuntu bash -c 'nsenter --all --target=$(lsns|awk "/^4026532477/{print \$4}") bash'
+```
+Copy and paste the command to enter build session.

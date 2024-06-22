@@ -77,11 +77,13 @@ ARG SDK_NAME=${TARGET_TRIPLE_ARCH}-on-${HOST_TRIPLE_ARCH}
 ARG TARGET_NAME=${TARGET_IMAGE/:/-}
 
 ####################################################################################################
-# --build-arg NO_SDK
-# If set, build target will be compiled with no sdk.
+# --build-arg SLEEP
+# If set, debugging enabled.
 ####################################################################################################
-ARG NO_SDK
-ARG _NO_SDK=${NO_SDK:+-no-sdk}
+ARG SLEEP
+
+ARG _SLEEP_SELECTOR=${SLEEP:+-sleep}
+
 ####################################################################################################
 # --build-arg DISABLE_BUILD_DIR_CACHE
 # If set, disable caching on /SwiftLint/.build directory.
@@ -186,6 +188,8 @@ ARG TARGET_NAME
 ENV BUNDLE_PATH=/root/.swiftpm/swift-sdks/${TARGET_NAME}.artifactbundle
 ADD swift-sdks.artifactbundle ${BUNDLE_PATH}
 ENV SWIFT_FLAGS="${SWIFT_FLAGS} --swift-sdk ${SDK_NAME}"
+ARG SLEEP
+ENV SLEEP=${SLEEP}
 
 # cross building poc-module-name-conflict
 FROM prepare-sdk AS cross-builder
@@ -194,7 +198,7 @@ RUN --mount=type=cache,target=${DOT_CACHE},sharing=locked,id=${SDK_NAME} \
     --mount=type=bind,target=${BUNDLE_PATH}/aarch64,from=swift-aarch64 \
     --mount=type=bind,target=${BUNDLE_PATH}/x86_64,from=swift-x86_64 \
     swift sdk list|grep "${SDK_NAME}" && \
-    swift build ${SWIFT_FLAGS}
+    swift build ${SWIFT_FLAGS} ${SWIFT_FLAGS_FOR_DEBUG} || [ -n "${SLEEP}" ]
 
 FROM swift-${TARGET_TRIPLE_ARCH} AS runtime
 
@@ -205,9 +209,30 @@ RUN --mount=type=cache,target=${DOT_CACHE},sharing=locked,id=${SDK_NAME} \
     --mount=type=cache,target=${BUILD_DIR},sharing=locked,id=${SDK_NAME} \
     --mount=type=bind,target=${BUNDLE_PATH}/${TARGET_TRIPLE_ARCH},from=runtime \
     swift sdk list|grep "${SDK_NAME}" && \
-    swift build ${SWIFT_FLAGS} -Xswiftc -save-temps || true
+    swift build ${SWIFT_FLAGS} ${SWIFT_FLAGS_FOR_DEBUG} || [ -n "${SLEEP}" ]
 
-FROM ${_CROSS_OR_NATIVE}-builder AS builder
+FROM ${_CROSS_OR_NATIVE}-builder AS post-build
+
+FROM ${_CROSS_OR_NATIVE}-builder AS post-build-sleep
+ARG RUNTIME_NAME TARGETPLATFORM
+ARG CACHE_ID=${RUNTIME_NAME}-${TARGETPLATFORM}
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked,id=${CACHE_ID} \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked,id=${CACHE_ID} \
+    --mount=type=cache,target=${DOT_CACHE},sharing=locked,id=${SDK_NAME} \
+    --mount=type=cache,target=${BUILD_DIR},sharing=locked,id=${SDK_NAME} \
+    --mount=type=bind,target=${BUNDLE_PATH}/aarch64,from=swift-aarch64 \
+    --mount=type=bind,target=${BUNDLE_PATH}/x86_64,from=swift-x86_64 \
+    pidns=$(readlink /proc/self/ns/pid|sed -E 's/pid:\[([0-9]+)\]/\1/') && \
+    cat <<EOT  && sleep 999999
+Enter the following command to enter build session:
+lima user:
+    limactl shell docker bash -c 'sudo nsenter --all --target=\$(lsns|awk "/^$pidns/{print \\\$4}") bash'
+
+Docker for Mac user:
+    docker run -it --privileged --pid=host --rm ubuntu bash -c 'nsenter --all --target=\$(lsns|awk "/^$pidns/{print \\\$4}") bash'
+EOT
+
+FROM post-build${_SLEEP_SELECTOR} AS builder
 RUN --mount=type=cache,target=${DOT_CACHE},sharing=locked,id=${SDK_NAME} \
     --mount=type=cache,target=${BUILD_DIR},sharing=locked,id=${SDK_NAME} \
     install -v `swift build ${SWIFT_FLAGS} --show-bin-path`/poc-module-name-conflict /usr/bin
